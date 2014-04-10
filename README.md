@@ -10,6 +10,7 @@ A (hopefully) neat plugin to check all things vSphere (in the end). It uses the
     pip install pysphere
 
 Usage:
+
     check_vsphere TEST
     check_vsphere [options] dsusage
     check_vsphere --version
