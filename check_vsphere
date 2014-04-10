@@ -18,14 +18,11 @@ from __future__ import print_function
 
 """
 Usage: check_vsphere TEST
-       check_vsphere [options] vmfs
+       check_vsphere [options] dsusage
        check_vsphere --version
 
-
-Arguments:
-  TEST     Test to run (vmfs|iolatency)
-
 Options:
+  -T             Test to run (required)
   --version      show version and exit
   -h --help
   -v --verbose   Output more information
@@ -39,6 +36,9 @@ Host, username and password can also be defined using the environment variable:
   VI_SERVER
   VI_USERNAME
   VI_PASSWORD
+  
+Currently the only test is "dsusage" which reports on the amount of space
+available on each datastore.
 """
 
 __author__  = "Chris Cowley"
@@ -46,6 +46,7 @@ __title__   = "Nagios plugin to check vSphere for various stuff"
 __version__ = 0.1
 
 from pysphere import VIServer, VIProperty
+from pysphere.resources import VimService_services as VI
 import argparse
 import os
 import errno, sys
@@ -102,50 +103,84 @@ except:
   print('Failed to connect to vSphere Server')
   exit(3)
 
-def vmfsSpaceCheck():
+def dsSpaceCheck():
   status = OK
+  perfdataarray = []
   for ds, name in server.get_datastores().items():
-    if "SAN" in name:
-      props = VIProperty(server, ds)
-#      print "Datastore", name
-      capacity = props.summary.capacity
-      capacityGB = capacity / (1024 ^ 3)
-#      print "Capacity:", capacityGB
-      freeSpace = props.summary.freeSpace
-      freeSpaceGB = freeSpace / 1024 / 1024 / 1024
-#      print freeSpaceGB, "GB free"
-      try:
-        uncommited = props.summary.uncommited
-#        print "Committed:", uncommited
-        overprov = used + uncommited
-        overprovPercent = (overprov / capacity) * 100
-        if overprovPercent > 100:
-          status = WARNING
-          break
-        elif overprovPercent > 150:
-          status = CRITICAL
-          break
-        else:
-          pass
-      except AttributeError:
-        pass
-      used = capacity - freeSpace
-      freePercent = 100 - (abs(float(used) / float(capacity)) * 100)
-      if freePercent < 20:
+    props = VIProperty(server, ds)
+    capacity = props.summary.capacity
+    capacityGB = capacity / (1024 ^ 3)
+    freeSpace = props.summary.freeSpace
+    freeSpaceGB = freeSpace / 1024 / 1024 / 1024
+    try:
+      uncommited = props.summary.uncommited
+      overprov = used + uncommited
+      overprovPercent = (overprov / capacity) * 100
+      if overprovPercent > 100:
+        message = "WARNING: A datastore is over-commited"
         status = WARNING
         break
-      elif freePercent < 10:
+      elif overprovPercent > 150:
+        message = "CRITICAL: A datastore is REALLY over-commited"
         status = CRITICAL
         break
       else:
         pass
-      print (freePercent)
-  if status == 0:
-    print("OK: All Datastores have sufficient space")
+    except AttributeError:
+      pass
+    used = capacity - freeSpace
+    freePercent = 100 - (abs(float(used) / float(capacity)) * 100)
+    perfdataarray.append (name + ' = ' + str(freePercent))
+    if freePercent < 10:
+      message = "CRITICAL: A datastore has less than 10% free"
+      status = CRITICAL
+    elif freePercent < 20:
+      if status != CRITICAL:
+        message = "WARNING: A datastore has less than 20% free"
+        status = WARNING
+    else:
+      pass
+  if status == OK:
+    message = "OK: All Datastores have sufficient space"
+  perfdata = ""
+  for dsdata in perfdataarray:
+    perfdata = perfdata + dsdata + ", "
+  message = message + " | " + perfdata
+  print (message)
   return status
 
+def dsIOCheck():
+  status = OK
+  vmlist = server.get_registered_vms(status='poweredOn')
+  for vmpath in vmlist:
+    print (vmpath)
+    pm = server.get_performance_manager()
+    vm = server.get_vm_by_path(vmpath)
+    mor = vm._mor
+    counterValues = pm.get_entity_counters(mor)
+    #print (counterValues) #virtualDisk.readLatencyUS
+#    readIOPS = counterValues['virtualDisk.numberReadAveraged']
+#    writeIOPS = counterValues['virtualDisk.numberWriteAveraged']
+    readLatency = counterValues['virtualDisk.readLatencyUS']
+    writeLatency = counterValues['virtualDisk.writeLatencyUS']
+#    IOPS = readIOPS + writeIOPS
+    print(readLatency, writeLatency)
+  return status
+  
+def alarmsCheck():
+  am = server._do_service_content.AlarmManager
+  request = VI.GetAlarm
+
+def testRun():
+  pass
 
 if __name__ == '__main__':
-  if TEST == 'vmfs':
-    vmfsSpaceCheck()
-  
+  if TEST == 'dsusage':
+    dsSpaceCheck()
+  elif TEST == 'iolatency':
+    dsIOCheck()
+  elif TEST == 'testrun':
+    testRun()
+  else:
+    print ('UNKNOWN: incorrect test defined (dsusage|iolatency are accepted)')
+    exit(UNKNOWN)
