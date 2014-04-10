@@ -1,0 +1,151 @@
+#!/usr/bin/env python
+from __future__ import print_function
+# Copyright: Chris Cowley 2014
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
+#
+
+"""
+Usage: check_vsphere TEST
+       check_vsphere [options] vmfs
+       check_vsphere --version
+
+
+Arguments:
+  TEST     Test to run (vmfs|iolatency)
+
+Options:
+  --version      show version and exit
+  -h --help
+  -v --verbose   Output more information
+  -H --host      vSphere server to interogate
+  -U --username  vSphere Username (username@domain if using SSO/AD)
+  -P --password  Password
+  -W --warning   Warning Threshold
+  -C --critical  Critical Threshold
+
+Host, username and password can also be defined using the environment variable:
+  VI_SERVER
+  VI_USERNAME
+  VI_PASSWORD
+"""
+
+__author__  = "Chris Cowley"
+__title__   = "Nagios plugin to check vSphere for various stuff"
+__version__ = 0.1
+
+from pysphere import VIServer, VIProperty
+import argparse
+import os
+import errno, sys
+
+# Standard Nagios return codes
+OK = 0
+WARNING = 1
+CRITICAL = 2
+UNKNOWN = 3
+
+def error(*objs):
+  print ("ERROR: ", *objs, file=sys.stderr)
+  
+def warning(*objs):
+  print ("WARNING: ", *objs, file=sys.stderr)
+
+parser = argparse.ArgumentParser(description=__title__)
+parser.add_argument('-H', '--hostname', help='vSphere server to interogate')
+parser.add_argument('-U', '--username', help='vSphere Username (username@domain')
+parser.add_argument('-P', '--password', help='vSpherePassword')
+parser.add_argument('-v', '--verbose', help='Verbose output')
+parser.add_argument('-T', '--test', help='test to run', required=True)
+args = parser.parse_args()
+
+# TODO: add suitable stderr messages
+if args.hostname != None:
+  VI_SERVER = args.hostname
+elif "VI_SERVER" in os.environ:
+  VI_SERVER = os.getenv("VI_SERVER")
+else:
+  error("vSphere server not defined")
+  sys.exit(UNKNOWN)
+if args.username !=None:
+  VI_USERNAME = args.username
+elif "VI_USERNAME" in os.environ:
+  VI_USERNAME = os.getenv("VI_USERNAME")
+else:
+  error("vSphere username not defined")
+  sys.exit(UNKNOWN)
+if args.password != None:
+  VI_PASSWORD = args.password
+elif "VI_PASSWORD" in os.environ:
+  VI_PASSWORD = os.getenv("VI_PASSWORD")
+else:
+  error("vSphere password not defined")
+  sys.exit(UNKNOWN)
+  
+TEST = args.test
+
+server = VIServer()
+try:
+  server.connect(VI_SERVER, VI_USERNAME, VI_PASSWORD)
+except:
+  print('Failed to connect to vSphere Server')
+  exit(3)
+
+def vmfsSpaceCheck():
+  status = OK
+  for ds, name in server.get_datastores().items():
+    if "SAN" in name:
+      props = VIProperty(server, ds)
+#      print "Datastore", name
+      capacity = props.summary.capacity
+      capacityGB = capacity / (1024 ^ 3)
+#      print "Capacity:", capacityGB
+      freeSpace = props.summary.freeSpace
+      freeSpaceGB = freeSpace / 1024 / 1024 / 1024
+#      print freeSpaceGB, "GB free"
+      try:
+        uncommited = props.summary.uncommited
+#        print "Committed:", uncommited
+        overprov = used + uncommited
+        overprovPercent = (overprov / capacity) * 100
+        if overprovPercent > 100:
+          status = WARNING
+          break
+        elif overprovPercent > 150:
+          status = CRITICAL
+          break
+        else:
+          pass
+      except AttributeError:
+        pass
+      used = capacity - freeSpace
+      freePercent = 100 - (abs(float(used) / float(capacity)) * 100)
+      if freePercent < 20:
+        status = WARNING
+        break
+      elif freePercent < 10:
+        status = CRITICAL
+        break
+      else:
+        pass
+      print (freePercent)
+  if status == 0:
+    print("OK: All Datastores have sufficient space")
+  return status
+
+
+if __name__ == '__main__':
+  if TEST == 'vmfs':
+    vmfsSpaceCheck()
+  
