@@ -2,6 +2,8 @@
 
 ## check_dothill
 
+Checks Dot Hill, and by extension HP MSA storage arrays.
+
 ## check_vsphere
 
 A (hopefully) neat plugin to check all things vSphere (in the end). It uses the
