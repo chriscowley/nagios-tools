@@ -129,8 +129,8 @@ def dsSpaceCheck():
     except AttributeError:
       pass
     used = capacity - freeSpace
-    freePercent = 100 - (abs(float(used) / float(capacity)) * 100)
-    perfdataarray.append (name + ' = ' + str(freePercent))
+    freePercent = round(100 - (abs(float(used) / float(capacity)) * 100),1)
+    perfdataarray.append (name + '=' + str(freePercent) + '%;20;10')
     if freePercent < 10:
       message = "CRITICAL: A datastore has less than 10% free"
       status = CRITICAL
@@ -144,7 +144,7 @@ def dsSpaceCheck():
     message = "OK: All Datastores have sufficient space"
   perfdata = ""
   for dsdata in perfdataarray:
-    perfdata = perfdata + dsdata + ", "
+    perfdata = perfdata + dsdata + " "
   message = message + " | " + perfdata
   print (message)
   return status
@@ -179,7 +179,8 @@ if __name__ == '__main__':
     status = dsSpaceCheck()
     exit(status)
   elif TEST == 'iolatency':
-    dsIOCheck()
+    status = dsIOCheck()
+    exit(status)
   elif TEST == 'testrun':
     testRun()
   else:
