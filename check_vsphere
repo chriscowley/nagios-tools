@@ -176,7 +176,8 @@ def testRun():
 
 if __name__ == '__main__':
   if TEST == 'dsusage':
-    dsSpaceCheck()
+    status = dsSpaceCheck()
+    exit(status)
   elif TEST == 'iolatency':
     dsIOCheck()
   elif TEST == 'testrun':
